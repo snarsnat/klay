@@ -360,28 +360,33 @@ def track_usage(model: str, prompt_tokens: int, completion_tokens: int):
 # ---------------------------------------------------------------------------
 
 def _resolve_model(model: str) -> str:
-    """Ensure model has correct LiteLLM provider prefix."""
+    """Ensure model has correct LiteLLM provider prefix.
+    Rules sourced from docs.litellm.ai per-provider pages.
+    """
     if not model:
         return model
-    # Already prefixed
+    # Already has provider prefix (deepseek/*, gemini/*, etc.)
     if "/" in model:
         return model
-    # Anthropic models — no prefix needed, LiteLLM detects by name
+    # Anthropic — no prefix needed, LiteLLM detects claude-* by name
     if model.startswith("claude-"):
         return model
-    # OpenAI models — no prefix needed
+    # OpenAI — no prefix needed: gpt-*, o1, o3, o4
     if model.startswith(("gpt-", "o1", "o3", "o4")):
         return model
-    # Gemini bare names
+    # Bare gemini names (shouldn't happen with new IDs, but safety net)
     if model.startswith("gemini"):
         return f"gemini/{model}"
+    # Bare deepseek names
+    if model.startswith("deepseek"):
+        return f"deepseek/{model}"
     return model
 
 
 def _get_api_key_for_model(model: str, api_keys: dict) -> Optional[str]:
-    """Return the correct API key for the given model ID."""
+    """Return the correct API key for the given model based on provider prefix."""
     m = model.lower()
-    if m.startswith("deepseek/") or m.startswith("deepseek-"):
+    if m.startswith("deepseek/") or "deepseek" in m.split("/")[0]:
         return api_keys.get("deepseek")
     if m.startswith("gemini/") or m.startswith("gemini"):
         return api_keys.get("google")
