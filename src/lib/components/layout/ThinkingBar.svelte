@@ -38,47 +38,7 @@
   }
 </script>
 
-{#if $workspaceStore.isThinking}
-  <div
-    class="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-2.5 rounded-full z-50 transition-all duration-300"
-    style="background-color: rgba(15,15,18,0.9); border: 1px solid {$activeColor}22;"
-    in:fade={{ duration: 200 }}
-    out:fade={{ duration: 150 }}
-  >
-    <!-- Pulsing dot -->
-    <div class="relative flex h-2.5 w-2.5">
-      <div
-        class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-40"
-        style="background-color: {$activeColor}"
-      ></div>
-      <div
-        class="relative inline-flex rounded-full h-2.5 w-2.5"
-        style="background-color: {$activeColor}"
-      ></div>
-    </div>
-
-    <!-- Icon & Status -->
-    <div class="flex items-center gap-2">
-      <svelte:component this={getIcon($activeMode?.icon || 'Circle')} size={12} color={$activeColor} />
-      <span class="text-xs text-main/90 font-mono tracking-tight">
-        {$workspaceStore.thinkingStatus}
-      </span>
-    </div>
-
-    <!-- Progress bar -->
-    <div class="h-1 w-16 rounded-full overflow-hidden" style="background-color: rgba(255,255,255,0.04)">
-      <div
-        class="h-full rounded-full animate-[thinking-progress_1.5s_ease-in-out_infinite]"
-        style={getBarStyle($activeColor)}
-      ></div>
-    </div>
-
-    <!-- Mode badge -->
-    <div class="text-[9px] font-mono px-1.5 py-0.5 rounded" style="background-color: {$activeColor}12; color: {$activeColor}">
-      {$activeMode?.name || 'Ready'}
-    </div>
-  </div>
-{/if}
+<!-- Thinking is now shown inline in the chat window -->
 
 <style>
   @keyframes thinking-progress {

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -47,7 +47,7 @@ class ChatMessage(BaseModel):
     content: str
 
 class CompletionRequest(BaseModel):
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-5.4-nano"
     messages: List[ChatMessage]
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
@@ -94,6 +94,248 @@ class SearchMemoryRequest(BaseModel):
     limit: int = 10
 
 # ---------------------------------------------------------------------------
+# Agentic Tools
+# ---------------------------------------------------------------------------
+
+# Models that support native thinking/reasoning tokens
+THINKING_SUPPORT = {
+    'gpt-5.5': True, 'gpt-5.5-pro': True,
+    'gpt-5.4': True, 'gpt-5.4-pro': True,
+    'gpt-5.4-mini': False, 'gpt-5.4-nano': False,
+    'claude-opus-4-7': True, 'claude-sonnet-4-6': True,
+    'claude-haiku-4-5': True, 'claude-opus-4.6': True,
+    'claude-sonnet-4.5': True, 'claude-haiku-4-5-20251001': True,
+    'gemini-3.1-pro': True, 'gemini-3-flash': True,
+    'gemini-3.1-flash-lite': False,
+    'gemini-2.5-pro': True, 'gemini-2.5-flash': True,
+    'gemini-2.5-flash-lite': False,
+    'deepseek-v4-pro': False, 'deepseek-v4-flash': True,
+}
+
+def _apply_thinking_params(kwargs: dict, model: str, original_model: str):
+    """Add provider-correct thinking params. Modifies kwargs in place."""
+    # Detect provider from original (un-prefixed) model id
+    if original_model.startswith("claude") or "claude" in original_model:
+        # Anthropic: explicit thinking block + temperature must be 1
+        kwargs["thinking"] = {"type": "enabled", "budget_tokens": 8000}
+        kwargs["temperature"] = 1
+    elif original_model.startswith("gemini"):
+        # Gemini 2.5: thinkingBudget; Gemini 3: thinkingLevel / reasoning_effort
+        if "2.5" in original_model:
+            kwargs["thinking"] = {"thinkingBudget": 8000}
+        else:
+            kwargs["reasoning_effort"] = "high"
+    elif original_model.startswith("deepseek"):
+        # DeepSeek reasoning models respond to reasoning_effort
+        kwargs["reasoning_effort"] = "high"
+    else:
+        # OpenAI GPT-5.x and others
+        kwargs["reasoning_effort"] = "high"
+
+AGENTIC_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "create_file",
+            "description": "Create a new file with content",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path relative to project root"},
+                    "content": {"type": "string", "description": "File content"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a file's contents",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path relative to project root"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_directory",
+            "description": "Create a new directory",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Directory path relative to project root"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_directory",
+            "description": "List files and directories in a path",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Directory path relative to project root"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": "Run a shell command (requires user approval)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Shell command to run"},
+                    "description": {"type": "string", "description": "Human-readable description of what this command does"},
+                },
+                "required": ["command", "description"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_image",
+            "description": "Generate an image using Higgsfield AI. Use when user asks to generate, create, or make an image or picture. Requires Higgsfield CLI to be installed and authenticated.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string", "description": "Detailed text description of the image to generate"},
+                    "model": {"type": "string", "description": "Model to use. Options: nano_banana_2 (fast, general), flux_1_1_pro (high quality), seedream_3 (artistic), soul_v2 (character). Default: nano_banana_2"},
+                    "aspect_ratio": {"type": "string", "description": "Aspect ratio like 1:1, 16:9, 9:16, 4:3. Default: 1:1"},
+                    "resolution": {"type": "string", "description": "Resolution: 1k, 2k, 4k. Default: 1k"},
+                },
+                "required": ["prompt"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_video",
+            "description": "Generate a video using Higgsfield AI. Use when user asks to generate, create, or make a video or animation. Requires Higgsfield CLI to be installed and authenticated.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string", "description": "Detailed text description of the video to generate"},
+                    "model": {"type": "string", "description": "Model to use. Options: kling3_0 (cinematic), seedance_2_0 (motion), veo3_1 (realistic), hailuo_02 (dynamic). Default: kling3_0"},
+                    "duration": {"type": "integer", "description": "Duration in seconds: 5, 10, or 15. Default: 5"},
+                    "start_image": {"type": "string", "description": "Optional local file path to an image to use as the first frame"},
+                    "sound": {"type": "string", "description": "Sound: on or off. Default: off"},
+                },
+                "required": ["prompt"],
+            },
+        },
+    },
+]
+
+
+def _safe_path(project_root: str, rel_path: str) -> Path:
+    """Resolve path safely within project root — no directory traversal."""
+    root = Path(project_root).resolve()
+    target = (root / rel_path).resolve()
+    if not str(target).startswith(str(root)):
+        raise ValueError(f"Path traversal blocked: {rel_path}")
+    return target
+
+
+async def execute_tool_auto(tool_name: str, args: dict, project_root: str) -> str:
+    """Execute auto-approved tools (file/dir ops). Returns string result."""
+    try:
+        if tool_name == "create_file":
+            path = _safe_path(project_root, args["path"])
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(args["content"], encoding="utf-8")
+            return f"Created {args['path']}"
+
+        elif tool_name == "read_file":
+            path = _safe_path(project_root, args["path"])
+            if not path.exists():
+                return f"Error: {args['path']} not found"
+            return path.read_text(encoding="utf-8")
+
+        elif tool_name == "create_directory":
+            path = _safe_path(project_root, args["path"])
+            path.mkdir(parents=True, exist_ok=True)
+            return f"Created directory {args['path']}"
+
+        elif tool_name == "list_directory":
+            path = _safe_path(project_root, args.get("path", "."))
+            if not path.exists():
+                return f"Error: {args.get('path', '.')} not found"
+            items = []
+            for item in sorted(path.iterdir()):
+                prefix = "📁 " if item.is_dir() else "📄 "
+                items.append(f"{prefix}{item.name}")
+            return "\n".join(items) if items else "(empty)"
+
+        elif tool_name == "generate_image":
+            return await _higgsfield_generate(
+                kind="image",
+                prompt=args["prompt"],
+                model=args.get("model", "nano_banana_2"),
+                extra_args=[
+                    "--aspect_ratio", args.get("aspect_ratio", "1:1"),
+                    "--resolution", args.get("resolution", "1k"),
+                ],
+            )
+
+        elif tool_name == "generate_video":
+            extra = ["--duration", str(args.get("duration", 5)), "--sound", args.get("sound", "off")]
+            if args.get("start_image"):
+                extra += ["--start-image", args["start_image"]]
+            return await _higgsfield_generate(
+                kind="video",
+                prompt=args["prompt"],
+                model=args.get("model", "kling3_0"),
+                extra_args=extra,
+            )
+
+        return f"Unknown tool: {tool_name}"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+async def _higgsfield_generate(kind: str, prompt: str, model: str, extra_args: list) -> str:
+    """Run higgsfield CLI to generate image or video. Returns result URL or error."""
+    import shutil
+    hf = shutil.which("higgsfield")
+    if not hf:
+        return (
+            "❌ Higgsfield CLI not installed.\n\n"
+            "Run in terminal:\n```\nnpm install -g @higgsfield/cli\nhiggsfield auth login\n```"
+        )
+    cmd = [hf, "generate", "create", model, "--prompt", prompt, "--wait"] + extra_args
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+    out = stdout.decode().strip()
+    err = stderr.decode().strip()
+    if proc.returncode != 0:
+        hint = ""
+        if "not logged in" in (out + err).lower() or "auth" in (out + err).lower():
+            hint = "\n\n**Fix:** Run `higgsfield auth login` in your terminal."
+        return f"❌ Higgsfield {kind} generation failed:{hint}\n```\n{err or out}\n```"
+    return f"✅ {kind.capitalize()} generated!\n\n{out}"
+
+
+# ---------------------------------------------------------------------------
 # Token Usage Tracking
 # ---------------------------------------------------------------------------
 
@@ -117,7 +359,14 @@ def track_usage(model: str, prompt_tokens: int, completion_tokens: int):
 # LiteLLM Chat Completions
 # ---------------------------------------------------------------------------
 
-async def litellm_completion(request: CompletionRequest) -> Dict[str, Any]:
+def _resolve_model(model: str) -> str:
+    """Prefix bare gemini-* models with gemini/ to route to AI Studio, not Vertex AI."""
+    if model.startswith("gemini-") and "/" not in model:
+        return f"gemini/{model}"
+    return model
+
+
+async def litellm_completion(request: CompletionRequest, api_key: Optional[str] = None) -> Dict[str, Any]:
     """Call LiteLLM with the given parameters."""
     try:
         import litellm
@@ -129,13 +378,18 @@ async def litellm_completion(request: CompletionRequest) -> Dict[str, Any]:
         messages = [m.model_dump() for m in request.messages]
 
         kwargs = dict(
-            model=request.model,
+            model=_resolve_model(request.model),
             messages=messages,
         )
         if request.temperature is not None:
             kwargs["temperature"] = request.temperature
         if request.max_tokens is not None:
             kwargs["max_tokens"] = request.max_tokens
+
+        # Pass API key if provided (from frontend settings)
+        # LiteLLM handles provider routing internally based on model name
+        if api_key:
+            kwargs["api_key"] = api_key
 
         response = await litellm.acompletion(**kwargs)
 
@@ -176,73 +430,174 @@ async def litellm_completion(request: CompletionRequest) -> Dict[str, Any]:
 
 
 @app.post("/api/chat/completions", response_model=CompletionResponse)
-async def chat_completions(request: CompletionRequest):
-    """AI chat completion via LiteLLM (non-streaming)."""
-    result = await litellm_completion(request)
+async def chat_completions(request: CompletionRequest, authorization: Optional[str] = Header(None)):
+    """AI chat completion via LiteLLM (non-streaming).
+    Accepts API key via Authorization header: Bearer <key> or X-Api-Key header.
+    """
+    api_key = None
+    if authorization and authorization.startswith("Bearer "):
+        api_key = authorization[7:]
+    result = await litellm_completion(request, api_key=api_key)
     return CompletionResponse(**result)
 
 
 @app.websocket("/api/chat/stream")
 async def chat_stream(websocket: WebSocket):
-    """Streaming AI chat completion via WebSocket."""
+    """Streaming AI chat completion with agentic tool use and thinking parsing."""
     await websocket.accept()
     try:
         import litellm
 
         data = await websocket.receive_json()
-        model = data.get("model", "gpt-4o-mini")
-        messages_data = data.get("messages", [])
+        model = _resolve_model(data.get("model", ""))
+        api_key = data.get("apiKey")
+        messages = list(data.get("messages", []))
         temperature = data.get("temperature")
-        max_tokens = data.get("max_tokens")
+        deep_thinking = data.get("deep_thinking", False)
+        agentic = data.get("agentic", True)
+        project_root = data.get("project_root", ".")
+
+        if not model:
+            await websocket.send_json({"type": "error", "content": "No model selected. Configure a model in Settings."})
+            return
 
         litellm.drop_params = True
+        total_usage = {"promptTokens": 0, "completionTokens": 0, "totalTokens": 0}
 
-        kwargs = dict(model=model, messages=messages_data, stream=True)
-        if temperature is not None:
-            kwargs["temperature"] = temperature
-        if max_tokens is not None:
-            kwargs["max_tokens"] = max_tokens
+        # Original (un-prefixed) model id for provider detection
+        original_model = data.get("model", "")
+        model_supports_thinking = THINKING_SUPPORT.get(original_model, False)
 
-        response = await litellm.acompletion(**kwargs)
-        full_content = ""
-        async for chunk in response:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta and delta.content:
-                full_content += delta.content
-                await websocket.send_json({
-                    "type": "chunk",
-                    "content": delta.content,
+        # Agentic loop — re-enters after tool calls
+        for _ in range(10):  # max 10 tool call rounds
+            kwargs: dict = dict(model=model, messages=messages, stream=True)
+            if temperature is not None:
+                kwargs["temperature"] = temperature
+            if deep_thinking and model_supports_thinking:
+                # Tools + thinking simultaneously not supported on most models
+                _apply_thinking_params(kwargs, model, original_model)
+            elif agentic:
+                kwargs["tools"] = AGENTIC_TOOLS
+                kwargs["tool_choice"] = "auto"
+            if api_key:
+                kwargs["api_key"] = api_key
+
+            response = await litellm.acompletion(**kwargs)
+
+            full_content = ""
+            # Accumulate streaming tool calls
+            tool_calls_acc: dict[int, dict] = {}
+            finish_reason = None
+
+            async for chunk in response:
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                finish_reason = choice.finish_reason or finish_reason
+                delta = choice.delta
+
+                # Accumulate tool call deltas
+                if hasattr(delta, "tool_calls") and delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        if idx not in tool_calls_acc:
+                            tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                        if tc_delta.id:
+                            tool_calls_acc[idx]["id"] = tc_delta.id
+                        if tc_delta.function:
+                            if tc_delta.function.name:
+                                tool_calls_acc[idx]["name"] += tc_delta.function.name
+                            if tc_delta.function.arguments:
+                                tool_calls_acc[idx]["arguments"] += tc_delta.function.arguments
+
+                # Native reasoning_content (Claude, DeepSeek, OpenAI o-series via LiteLLM)
+                reasoning = getattr(delta, "reasoning_content", None)
+                if reasoning:
+                    await websocket.send_json({"type": "thinking", "content": reasoning})
+
+                # Regular content
+                if hasattr(delta, "content") and delta.content:
+                    full_content += delta.content
+                    await websocket.send_json({"type": "chunk", "content": delta.content})
+
+            # Track usage
+            usage_data = getattr(response, "usage", None)
+            if usage_data:
+                total_usage["promptTokens"] += getattr(usage_data, "prompt_tokens", 0)
+                total_usage["completionTokens"] += getattr(usage_data, "completion_tokens", 0)
+                total_usage["totalTokens"] += getattr(usage_data, "total_tokens", 0)
+
+            if not tool_calls_acc:
+                # No tool calls — we're done
+                break
+
+            # Build tool call list for messages
+            tool_call_list = []
+            for idx in sorted(tool_calls_acc.keys()):
+                tc = tool_calls_acc[idx]
+                tool_call_list.append({
+                    "id": tc["id"] or f"call_{idx}",
+                    "type": "function",
+                    "function": {"name": tc["name"], "arguments": tc["arguments"]},
                 })
 
-        usage_data = getattr(response, "usage", None)
-        if usage_data is None:
-            # Need to get total usage from litellm
-            usage_data = getattr(response, "usage", None)
-        usage = {
-            "promptTokens": usage_data.prompt_tokens if usage_data else 0,
-            "completionTokens": usage_data.completion_tokens if usage_data else 0,
-            "totalTokens": usage_data.total_tokens if usage_data else 0,
-        }
-        track_usage(model, usage["promptTokens"], usage["completionTokens"])
+            messages.append({
+                "role": "assistant",
+                "content": full_content or None,
+                "tool_calls": tool_call_list,
+            })
 
-        await websocket.send_json({
-            "type": "done",
-            "usage": usage,
-        })
+            # Execute each tool
+            for tc in tool_call_list:
+                tool_name = tc["function"]["name"]
+                try:
+                    args = json.loads(tc["function"]["arguments"])
+                except Exception:
+                    args = {}
+
+                if tool_name == "run_command":
+                    # Needs user approval — send to frontend
+                    await websocket.send_json({
+                        "type": "tool_call",
+                        "id": tc["id"],
+                        "tool": "run_command",
+                        "command": args.get("command", ""),
+                        "description": args.get("description", ""),
+                    })
+                    try:
+                        result_msg = await asyncio.wait_for(websocket.receive_json(), timeout=120)
+                        if result_msg.get("type") == "tool_result":
+                            output = result_msg.get("output", "cancelled")
+                        else:
+                            output = "User cancelled"
+                    except asyncio.TimeoutError:
+                        output = "Timed out waiting for approval"
+                else:
+                    # Auto-execute safe tools
+                    output = await execute_tool_auto(tool_name, args, project_root)
+                    await websocket.send_json({
+                        "type": "tool_executed",
+                        "tool": tool_name,
+                        "result": output[:500],
+                    })
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": str(output),
+                })
+
+        track_usage(model, total_usage["promptTokens"], total_usage["completionTokens"])
+        await websocket.send_json({"type": "done", "usage": total_usage})
+
     except WebSocketDisconnect:
         pass
     except ImportError:
-        await websocket.send_json({
-            "type": "error",
-            "content": "LiteLLM is not installed. Install with: pip install litellm"
-        })
+        await websocket.send_json({"type": "error", "content": "LiteLLM not installed. Run: pip install litellm"})
     except Exception as e:
         try:
-            await websocket.send_json({
-                "type": "error",
-                "content": f"Error: {str(e)[:500]}"
-            })
-        except WebSocketDisconnect:
+            await websocket.send_json({"type": "error", "content": f"Error: {str(e)[:500]}"})
+        except Exception:
             pass
     finally:
         try:
@@ -256,16 +611,30 @@ async def get_models():
     """Get available AI models."""
     return {
         "models": [
-            {"id": "gpt-4o", "name": "GPT-4o", "provider": "OpenAI"},
-            {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "provider": "OpenAI"},
-            {"id": "gpt-4-turbo", "name": "GPT-4 Turbo", "provider": "OpenAI"},
-            {"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.5 Sonnet", "provider": "Anthropic"},
-            {"id": "claude-3-haiku-20240307", "name": "Claude 3 Haiku", "provider": "Anthropic"},
-            {"id": "claude-3-opus-20240229", "name": "Claude 3 Opus", "provider": "Anthropic"},
-            {"id": "o1-mini", "name": "o1 Mini", "provider": "OpenAI"},
-            {"id": "o1-preview", "name": "o1 Preview", "provider": "OpenAI"},
+            # OpenAI
+            {"id": "gpt-5.5", "name": "GPT-5.5 (Flagship)", "provider": "OpenAI"},
+            {"id": "gpt-5.5-pro", "name": "GPT-5.5 Pro (Precision)", "provider": "OpenAI"},
+            {"id": "gpt-5.4", "name": "GPT-5.4 (Balanced)", "provider": "OpenAI"},
+            {"id": "gpt-5.4-pro", "name": "GPT-5.4 Pro", "provider": "OpenAI"},
+            {"id": "gpt-5.4-mini", "name": "GPT-5.4 Mini (Coding/Agents)", "provider": "OpenAI"},
+            {"id": "gpt-5.4-nano", "name": "GPT-5.4 Nano (Lowest Latency/Cost)", "provider": "OpenAI"},
+            # Anthropic
+            {"id": "claude-opus-4-7", "name": "Claude Opus 4 (Flagship)", "provider": "Anthropic"},
+            {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4 (Best Balance)", "provider": "Anthropic"},
+            {"id": "claude-haiku-4-5", "name": "Claude Haiku 4 (Fastest/Lowest Cost)", "provider": "Anthropic"},
+            {"id": "claude-opus-4.6", "name": "Claude Opus 4.6", "provider": "Anthropic"},
+            {"id": "claude-sonnet-4.5", "name": "Claude Sonnet 4.5", "provider": "Anthropic"},
+            # Google
+            {"id": "gemini-3.1-pro", "name": "Gemini 3.1 Pro", "provider": "Google"},
+            {"id": "gemini-3-flash", "name": "Gemini 3 Flash", "provider": "Google"},
+            {"id": "gemini-3.1-flash-lite", "name": "Gemini 3.1 Flash Lite", "provider": "Google"},
+            {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro", "provider": "Google"},
+            {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "provider": "Google"},
+            # DeepSeek
+            {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro", "provider": "DeepSeek"},
+            {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "provider": "DeepSeek"},
         ],
-        "default": "gpt-4o-mini",
+        "default": "gpt-5.4-nano",
     }
 
 # ---------------------------------------------------------------------------
@@ -586,8 +955,12 @@ User request: {req.prompt}
 
 Return the analysis as a concise description of what's in the image."""
 
+                analysis_model = os.environ.get("KLAY_DEFAULT_MODEL", "")
+                if not analysis_model:
+                    analysis = None
+                    raise Exception("No model configured")
                 response = await litellm.acompletion(
-                    model="gpt-4o-mini",
+                    model=_resolve_model(analysis_model),
                     messages=[{"role": "user", "content": analysis_prompt}],
                     max_tokens=300,
                 )
@@ -870,6 +1243,62 @@ async def memory_clear():
 # ---------------------------------------------------------------------------
 # Health & Info
 # ---------------------------------------------------------------------------
+
+@app.get("/api/files/list")
+async def list_files(root: str = "."):
+    """List project files as a tree from the given root path."""
+    try:
+        root_path = Path(root).resolve()
+        if not root_path.exists():
+            raise HTTPException(status_code=404, detail="Path not found")
+
+        IGNORE = {".git", "__pycache__", "node_modules", ".svelte-kit", ".vite", "dist", ".DS_Store"}
+
+        def build_tree(path: Path, rel: str = "") -> dict:
+            name = path.name
+            rel_path = rel or "."
+            if path.is_file():
+                ext = path.suffix.lstrip(".") if path.suffix else None
+                return {"name": name, "path": rel_path, "type": "file", "extension": ext}
+            children = []
+            try:
+                for child in sorted(path.iterdir()):
+                    if child.name in IGNORE or child.name.startswith("."):
+                        continue
+                    child_rel = f"{rel_path}/{child.name}" if rel_path != "." else child.name
+                    children.append(build_tree(child, child_rel))
+            except PermissionError:
+                pass
+            return {"name": name, "path": rel_path, "type": "directory", "children": children}
+
+        tree = build_tree(root_path)
+        return {"tree": tree, "root": str(root_path)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agentic/execute")
+async def agentic_execute(data: dict):
+    """Execute a pre-approved shell command."""
+    command = data.get("command", "")
+    project_root = data.get("project_root", ".")
+    if not command:
+        raise HTTPException(status_code=400, detail="No command")
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=project_root,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+        output = stdout.decode("utf-8", errors="replace")
+        return {"output": output, "exit_code": proc.returncode}
+    except asyncio.TimeoutError:
+        return {"output": "Command timed out after 30s", "exit_code": -1}
+    except Exception as e:
+        return {"output": str(e), "exit_code": -1}
+
 
 @app.get("/api/health")
 async def health():

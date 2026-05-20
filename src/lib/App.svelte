@@ -6,10 +6,12 @@
   import ImageEditor from './components/canvas/ImageEditor.svelte';
   import ComputerControl from './components/panels/ComputerControl.svelte';
   import MemoryGraph from './components/panels/MemoryGraph.svelte';
+  import OnboardingWizard from './components/onboarding/OnboardingWizard.svelte';
   import './styles/app.css';
   import { onMount } from 'svelte';
   import { modeStore } from '$lib/stores/modes';
   import { workspaceStore } from '$lib/stores/workspace';
+  import { settingsStore, isConfigured } from '$lib/stores/settings';
   import { fade, scale } from 'svelte/transition';
 
   onMount(() => {
@@ -17,95 +19,99 @@
   });
 </script>
 
-<div class="klay-app">
-  <!-- Main layout -->
-  <Sidebar />
-  <main class="main-workspace">
-    <Workspace />
-  </main>
-  <FileExplorer />
+{#if !$isConfigured}
+  <OnboardingWizard />
+{:else}
+  <div class="klay-app">
+    <!-- Main layout -->
+    <Sidebar />
+    <main class="main-workspace">
+      <Workspace />
+    </main>
+    <FileExplorer />
 
-  <!-- Overlay Panels -->
-  {#if $workspaceStore.showIdeaBoard}
-    <div
-      class="fixed inset-0 z-40 bg-black/40 flex items-center justify-center"
-      transition:fade={{ duration: 150 }}
-      onclick={() => workspaceStore.toggleIdeaBoard()}
-      role="presentation"
-    >
+    <!-- Overlay Panels -->
+    {#if $workspaceStore.showIdeaBoard}
       <div
-        class="w-[90vw] h-[85vh] max-w-6xl rounded-2xl overflow-hidden border border-border shadow-2xl"
-        style="background-color: #0a0a0c"
-        transition:scale={{ duration: 150, start: 0.95 }}
-        onclick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-label="Idea Board"
+        class="fixed inset-0 z-40 bg-black/40 flex items-center justify-center"
+        transition:fade={{ duration: 150 }}
+        onclick={() => workspaceStore.toggleIdeaBoard()}
+        role="presentation"
       >
-        <IdeaBoard />
+        <div
+          class="w-[90vw] h-[85vh] max-w-6xl rounded-2xl overflow-hidden border border-border shadow-2xl"
+          style="background-color: #0a0a0c"
+          transition:scale={{ duration: 150, start: 0.95 }}
+          onclick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-label="Idea Board"
+        >
+          <IdeaBoard />
+        </div>
       </div>
-    </div>
-  {/if}
+    {/if}
 
-  {#if $workspaceStore.showImageEditor}
-    <div
-      class="fixed inset-0 z-40 bg-black/40 flex items-center justify-center"
-      transition:fade={{ duration: 150 }}
-      onclick={() => workspaceStore.toggleImageEditor()}
-      role="presentation"
-    >
+    {#if $workspaceStore.showImageEditor}
       <div
-        class="w-[90vw] h-[85vh] max-w-6xl rounded-2xl overflow-hidden border border-border shadow-2xl"
-        style="background-color: #0a0a0c"
-        transition:scale={{ duration: 150, start: 0.95 }}
-        onclick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-label="Image Editor"
+        class="fixed inset-0 z-40 bg-black/40 flex items-center justify-center"
+        transition:fade={{ duration: 150 }}
+        onclick={() => workspaceStore.toggleImageEditor()}
+        role="presentation"
       >
-        <ImageEditor />
+        <div
+          class="w-[90vw] h-[85vh] max-w-6xl rounded-2xl overflow-hidden border border-border shadow-2xl"
+          style="background-color: #0a0a0c"
+          transition:scale={{ duration: 150, start: 0.95 }}
+          onclick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-label="Image Editor"
+        >
+          <ImageEditor />
+        </div>
       </div>
-    </div>
-  {/if}
+    {/if}
 
-  {#if $workspaceStore.showComputerControl}
-    <div
-      class="fixed inset-0 z-40 bg-black/40 flex items-center justify-center"
-      transition:fade={{ duration: 150 }}
-      onclick={() => workspaceStore.toggleComputerControl()}
-      role="presentation"
-    >
+    {#if $workspaceStore.showComputerControl}
       <div
-        class="w-[90vw] h-[85vh] max-w-5xl rounded-2xl overflow-hidden border border-border shadow-2xl"
-        style="background-color: #0a0a0c"
-        transition:scale={{ duration: 150, start: 0.95 }}
-        onclick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-label="Computer Control"
+        class="fixed inset-0 z-40 bg-black/40 flex items-center justify-center"
+        transition:fade={{ duration: 150 }}
+        onclick={() => workspaceStore.toggleComputerControl()}
+        role="presentation"
       >
-        <ComputerControl />
+        <div
+          class="w-[90vw] h-[85vh] max-w-5xl rounded-2xl overflow-hidden border border-border shadow-2xl"
+          style="background-color: #0a0a0c"
+          transition:scale={{ duration: 150, start: 0.95 }}
+          onclick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-label="Computer Control"
+        >
+          <ComputerControl />
+        </div>
       </div>
-    </div>
-  {/if}
+    {/if}
 
-  {#if $workspaceStore.showMemoryGraph}
-    <div
-      class="fixed inset-0 z-40 bg-black/40 flex items-center justify-center"
-      transition:fade={{ duration: 150 }}
-      onclick={() => workspaceStore.toggleMemoryGraph()}
-      role="presentation"
-    >
+    {#if $workspaceStore.showMemoryGraph}
       <div
-        class="w-[90vw] h-[85vh] max-w-5xl rounded-2xl overflow-hidden border border-border shadow-2xl"
-        style="background-color: #0a0a0c"
-        transition:scale={{ duration: 150, start: 0.95 }}
-        onclick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-label="Memory Graph"
+        class="fixed inset-0 z-40 bg-black/40 flex items-center justify-center"
+        transition:fade={{ duration: 150 }}
+        onclick={() => workspaceStore.toggleMemoryGraph()}
+        role="presentation"
       >
-        <MemoryGraph />
+        <div
+          class="w-[90vw] h-[85vh] max-w-5xl rounded-2xl overflow-hidden border border-border shadow-2xl"
+          style="background-color: #0a0a0c"
+          transition:scale={{ duration: 150, start: 0.95 }}
+          onclick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-label="Memory Graph"
+        >
+          <MemoryGraph />
+        </div>
       </div>
-    </div>
-  {/if}
-</div>
+    {/if}
+  </div>
+{/if}
 
 <style>
   :global(body, html) {
@@ -114,7 +120,7 @@
     height: 100%;
     background: #0a0a0c;
     color: #e2e2e6;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: 'JetBrains Mono', monospace;
   }
 
   .klay-app {
@@ -131,5 +137,7 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    overflow: hidden;
+    height: 100vh;
   }
 </style>

@@ -52,11 +52,17 @@ export async function checkHealth(): Promise<boolean> {
 // AI Chat Completions
 // ============================================================
 
-export async function chatCompletion(request: AICompletionRequest): Promise<AICompletionResponse> {
-  // Try backend first, fall back to Tauri command
+export async function chatCompletion(request: AICompletionRequest, apiKey?: string): Promise<AICompletionResponse> {
+  // Try backend first
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
   try {
     return await fetchJSON<AICompletionResponse>('/api/chat/completions', {
       method: 'POST',
+      headers,
       body: JSON.stringify(request),
     });
   } catch {
@@ -73,28 +79,50 @@ export async function chatCompletion(request: AICompletionRequest): Promise<AICo
 
 let wsInstance: WebSocket | null = null;
 
+export interface StreamCallbacks {
+  onChunk: (text: string) => void;
+  onThinking: (text: string) => void;
+  onToolCall: (id: string, command: string, description: string) => Promise<string>;
+  onToolExecuted: (tool: string, result: string) => void;
+  onDone: (usage: TokenUsage) => void;
+  onError: (err: string) => void;
+}
+
 export function streamChat(
-  request: AICompletionRequest,
-  callbacks: { onChunk: (text: string) => void; onDone: (usage: TokenUsage) => void; onError: (err: string) => void },
+  request: AICompletionRequest & { deepThinking?: boolean; agentic?: boolean; projectRoot?: string },
+  callbacks: StreamCallbacks,
+  apiKey?: string,
 ): () => void {
   try {
     const ws = new WebSocket(`ws://localhost:8000/api/chat/stream`);
     wsInstance = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({
+      const payload: Record<string, unknown> = {
         model: request.model,
         messages: request.messages,
         temperature: request.temperature,
         max_tokens: request.maxTokens,
-      }));
+        deep_thinking: request.deepThinking ?? false,
+        agentic: request.agentic ?? true,
+        project_root: request.projectRoot ?? '.',
+      };
+      if (apiKey) payload.apiKey = apiKey;
+      ws.send(JSON.stringify(payload));
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'chunk') {
           callbacks.onChunk(data.content);
+        } else if (data.type === 'thinking') {
+          callbacks.onThinking(data.content);
+        } else if (data.type === 'tool_call') {
+          const output = await callbacks.onToolCall(data.id, data.command, data.description);
+          ws.send(JSON.stringify({ type: 'tool_result', id: data.id, output }));
+        } else if (data.type === 'tool_executed') {
+          callbacks.onToolExecuted(data.tool, data.result);
         } else if (data.type === 'done') {
           callbacks.onDone(data.usage);
           ws.close();
@@ -108,7 +136,7 @@ export function streamChat(
     };
 
     ws.onerror = () => {
-      callbacks.onError('WebSocket connection failed. Is the backend running? Try: cd backend && python3 main.py');
+      callbacks.onError('WebSocket connection failed. Is the backend running?');
     };
 
     ws.onclose = () => {
@@ -124,6 +152,17 @@ export function streamChat(
       wsInstance = null;
     }
   };
+}
+
+export async function executeCommand(command: string, projectRoot = '.'): Promise<{ output: string; exit_code: number }> {
+  return fetchJSON('/api/agentic/execute', {
+    method: 'POST',
+    body: JSON.stringify({ command, project_root: projectRoot }),
+  });
+}
+
+export async function listProjectFiles(root = '.'): Promise<{ tree: unknown; root: string }> {
+  return fetchJSON(`/api/files/list?root=${encodeURIComponent(root)}`);
 }
 
 export async function getAvailableModels(): Promise<AvailableModel[]> {
