@@ -112,7 +112,7 @@
 
     const s = get(settingsStore);
     const model = s.defaultModel || '';
-    const apiKey = s.apiKeys ? Object.values(s.apiKeys)[0] : undefined;
+    const apiKeys = s.apiKeys ?? {};
     const messages = $workspaceStore.messages.map((m, i, arr) =>
       // Replace last user message with slash-command-expanded text for the AI
       (m.role === 'user' && i === arr.length - 1)
@@ -207,7 +207,7 @@
           clearStopStream();
         },
       },
-      apiKey as string | undefined,
+      apiKeys,
     );
 
     registerStopStream(() => {

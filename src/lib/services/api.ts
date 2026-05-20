@@ -91,7 +91,7 @@ export interface StreamCallbacks {
 export function streamChat(
   request: AICompletionRequest & { deepThinking?: boolean; agentic?: boolean; projectRoot?: string },
   callbacks: StreamCallbacks,
-  apiKey?: string,
+  apiKeys?: Record<string, string | undefined>,
 ): () => void {
   try {
     const ws = new WebSocket(`ws://localhost:8000/api/chat/stream`);
@@ -107,7 +107,7 @@ export function streamChat(
         agentic: request.agentic ?? true,
         project_root: request.projectRoot ?? '.',
       };
-      if (apiKey) payload.apiKey = apiKey;
+      if (apiKeys) payload.apiKeys = apiKeys;
       ws.send(JSON.stringify(payload));
     };
 

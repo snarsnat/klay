@@ -105,30 +105,29 @@ export interface UserSettings {
 
 /** Models that support deep thinking / extended reasoning */
 export const THINKING_SUPPORT: Record<string, boolean> = {
-  // OpenAI — GPT-5.4+ full models support reasoning_effort; mini/nano do not
-  'gpt-5.5': true,
-  'gpt-5.5-pro': true,
-  'gpt-5.4': true,
-  'gpt-5.4-pro': true,
-  'gpt-5.4-mini': false,
-  'gpt-5.4-nano': false,
-  // Anthropic — all Claude 4.x support extended thinking
-  'claude-opus-4-7': true,
-  'claude-sonnet-4-6': true,
-  'claude-haiku-4-5': true,
-  'claude-opus-4.6': true,
-  'claude-sonnet-4.5': true,
-  'claude-haiku-4-5-20251001': true,
-  // Google Gemini — 2.5+ and 3.x support thinking; lite variants do not
-  'gemini-3.1-pro': true,
-  'gemini-3-flash': true,
-  'gemini-3.1-flash-lite': false,
-  'gemini-2.5-pro': true,
-  'gemini-2.5-flash': true,
-  'gemini-2.5-flash-lite': false,
-  // DeepSeek — V4 Flash is the reasoning/thinking variant
-  'deepseek-v4-pro': false,
-  'deepseek-v4-flash': true,
+  // OpenAI — o-series are reasoning models
+  'gpt-4o': false,
+  'gpt-4o-mini': false,
+  'gpt-5': false,
+  'gpt-5-mini': false,
+  'o3': true,
+  'o3-mini': true,
+  'o4-mini': true,
+  // Anthropic — claude-3.7+ and claude-4 support extended thinking
+  'claude-opus-4-20250514': true,
+  'claude-sonnet-4-20250514': true,
+  'claude-3-7-sonnet-20250219': true,
+  'claude-3-5-sonnet-20240620': false,
+  'claude-3-5-haiku-20241022': false,
+  'claude-3-haiku-20240307': false,
+  // Gemini — 2.5+ supports thinking
+  'gemini/gemini-2.5-pro': true,
+  'gemini/gemini-2.5-flash': true,
+  'gemini/gemini-2.5-flash-lite': false,
+  'gemini/gemini-2.0-flash': false,
+  // DeepSeek — reasoner is the thinking model
+  'deepseek/deepseek-reasoner': true,
+  'deepseek/deepseek-chat': false,
 };
 
 export function modelSupportsThinking(modelId: string): boolean {
@@ -140,44 +139,43 @@ export const AVAILABLE_PROVIDERS: { id: keyof UserSettings['apiKeys']; name: str
     id: 'openai',
     name: 'OpenAI',
     models: [
-      { id: 'gpt-5.5', name: 'GPT-5.5 (Flagship)' },
-      { id: 'gpt-5.5-pro', name: 'GPT-5.5 Pro (Precision)' },
-      { id: 'gpt-5.4', name: 'GPT-5.4 (Balanced)' },
-      { id: 'gpt-5.4-pro', name: 'GPT-5.4 Pro' },
-      { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini (Coding/Agents)' },
-      { id: 'gpt-5.4-nano', name: 'GPT-5.4 Nano (Lowest Latency/Cost)' },
+      { id: 'gpt-4o', name: 'GPT-4o (Latest)' },
+      { id: 'gpt-4o-mini', name: 'GPT-4o Mini (Fast)' },
+      { id: 'o3', name: 'o3 (Reasoning)' },
+      { id: 'o3-mini', name: 'o3 Mini (Reasoning, Fast)' },
+      { id: 'o4-mini', name: 'o4 Mini (Reasoning)' },
+      { id: 'gpt-5', name: 'GPT-5 (Flagship)' },
+      { id: 'gpt-5-mini', name: 'GPT-5 Mini' },
     ],
   },
   {
     id: 'anthropic',
     name: 'Anthropic (Claude)',
     models: [
-      { id: 'claude-opus-4-7', name: 'Claude Opus 4 (Flagship)' },
-      { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4 (Best Balance)' },
-      { id: 'claude-haiku-4-5', name: 'Claude Haiku 4 (Fastest/Lowest Cost)' },
-      { id: 'claude-opus-4.6', name: 'Claude Opus 4.6' },
-      { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5' },
-      { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5 (Snapshot)' },
+      { id: 'claude-opus-4-20250514', name: 'Claude Opus 4 (Flagship)' },
+      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4 (Best Balance)' },
+      { id: 'claude-3-7-sonnet-20250219', name: 'Claude 3.7 Sonnet (Thinking)' },
+      { id: 'claude-3-5-sonnet-20240620', name: 'Claude 3.5 Sonnet' },
+      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku (Fastest)' },
+      { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku' },
     ],
   },
   {
     id: 'google',
     name: 'Google (Gemini)',
     models: [
-      { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro' },
-      { id: 'gemini-3-flash', name: 'Gemini 3 Flash' },
-      { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite' },
-      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
-      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-      { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite' },
+      { id: 'gemini/gemini-2.5-pro', name: 'Gemini 2.5 Pro (Thinking)' },
+      { id: 'gemini/gemini-2.5-flash', name: 'Gemini 2.5 Flash (Thinking)' },
+      { id: 'gemini/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite' },
+      { id: 'gemini/gemini-2.0-flash', name: 'Gemini 2.0 Flash (Fast)' },
     ],
   },
   {
     id: 'deepseek',
     name: 'DeepSeek',
     models: [
-      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
-      { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash (Thinking)' },
+      { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat (V3)' },
+      { id: 'deepseek/deepseek-reasoner', name: 'DeepSeek Reasoner (R1, Thinking)' },
     ],
   },
 ];

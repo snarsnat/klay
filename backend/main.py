@@ -360,10 +360,36 @@ def track_usage(model: str, prompt_tokens: int, completion_tokens: int):
 # ---------------------------------------------------------------------------
 
 def _resolve_model(model: str) -> str:
-    """Prefix bare gemini-* models with gemini/ to route to AI Studio, not Vertex AI."""
-    if model.startswith("gemini-") and "/" not in model:
+    """Ensure model has correct LiteLLM provider prefix."""
+    if not model:
+        return model
+    # Already prefixed
+    if "/" in model:
+        return model
+    # Anthropic models — no prefix needed, LiteLLM detects by name
+    if model.startswith("claude-"):
+        return model
+    # OpenAI models — no prefix needed
+    if model.startswith(("gpt-", "o1", "o3", "o4")):
+        return model
+    # Gemini bare names
+    if model.startswith("gemini"):
         return f"gemini/{model}"
     return model
+
+
+def _get_api_key_for_model(model: str, api_keys: dict) -> Optional[str]:
+    """Return the correct API key for the given model ID."""
+    m = model.lower()
+    if m.startswith("deepseek/") or m.startswith("deepseek-"):
+        return api_keys.get("deepseek")
+    if m.startswith("gemini/") or m.startswith("gemini"):
+        return api_keys.get("google")
+    if m.startswith("claude-"):
+        return api_keys.get("anthropic")
+    if m.startswith(("gpt-", "o1", "o3", "o4")):
+        return api_keys.get("openai")
+    return None
 
 
 async def litellm_completion(request: CompletionRequest, api_key: Optional[str] = None) -> Dict[str, Any]:
@@ -450,7 +476,12 @@ async def chat_stream(websocket: WebSocket):
 
         data = await websocket.receive_json()
         model = _resolve_model(data.get("model", ""))
-        api_key = data.get("apiKey")
+        # Support both legacy single apiKey and new apiKeys dict
+        api_keys: dict = data.get("apiKeys") or {}
+        if not api_keys and data.get("apiKey"):
+            api_keys = {"openai": data["apiKey"], "anthropic": data["apiKey"],
+                        "google": data["apiKey"], "deepseek": data["apiKey"]}
+        api_key = _get_api_key_for_model(model, api_keys)
         messages = list(data.get("messages", []))
         temperature = data.get("temperature")
         deep_thinking = data.get("deep_thinking", False)
